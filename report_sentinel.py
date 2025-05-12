@@ -1,10 +1,15 @@
-# Imports
-from email.mime import base
+"""
+report_sentinel.py
+
+Report monitoring and reprocessing.
+
+Checks each dir in config['report_paths'] for the expected report file.
+If a report is missing, sends an alert, triggers reprocessing, and
+stops further processing for this run.
+"""
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
-from multiprocessing.sharedctypes import Value
-import os
-from typing import Dict
+from typing import Any
 import venv
 
 import yaml
@@ -18,25 +23,24 @@ import datetime as dt
 from yaml.scanner import ScannerError
 import pytz
 
-# Set up logging here
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s %(message)s",
     handlers=[
-        logging.FileHandler("report_sentinel.log"),
+        # NOTE: To save logs, uncomment the below line
+        # logging.FileHandler("report_sentinel.log"),
         logging.StreamHandler()
     ]
 )
 
 
-# Normal additionals, no need of testing so far they work already
-# and have been tested
 def load_config(
     file_path: "str|Path" = Path(__file__).parent / 'config.yaml'
-) -> "dict":
+) -> "dict[str, Any]":
+    """Reads the config file present in the directory"""
     try:
         with open(Path(file_path), "r") as file_:
-            config: "dict" = yaml.safe_load(file_)
+            config: "dict[str, Any]" = yaml.safe_load(file_)
         return config
     except FileNotFoundError:
         raise FileNotFoundError("The provided config path does not exist")
@@ -46,16 +50,10 @@ def load_config(
         )
 
 
-def get_logger(name: str = 'root', file_: str = 'logs.log') -> None:
-    # NOTE: this is not needed for the code so we wont be doing it here,
-    # it can be upgraded after
-    pass
-
-
 def send_email(
-    smtp_server, sender, recipients,
-    username, password, subject, body,
-    attachments=[]
+    smtp_server: "tuple[str, int]", sender: str, recipients: str,
+    username: str, password: str, subject: str, body: str,
+    attachments: "list[tuple[bytes, str]]" = []
 ) -> None:
     """Sends the provided email using the given parameters"""
     # Parent message object
@@ -66,14 +64,14 @@ def send_email(
     # Adding the text part of the message
     msg.attach(MIMEText(body))
     # Add the attachment to the message
-    # NOTE: in case of SSL, comment one or the other.
+    # NOTE: in case of SSL, comment one or the other. - DEBUG
     # with smtplib.SMTP(smtp_server[0], port=smtp_server[1]) as smtp:
     with smtplib.SMTP_SSL(smtp_server[0], port=smtp_server[1]) as smtp:
         smtp.login(username, password)
         smtp.send_message(msg)
 
 
-def run_tpt_report_downloader(config: Dict):
+def run_tpt_report_downloader(config: "dict[str, Any]") -> "bool|None":
     """
     Execute TPT report downloader in its virtual environment
     Merges best practices from both implementations with enhanced error
@@ -91,30 +89,22 @@ def run_tpt_report_downloader(config: Dict):
         target_dir = Path(config["main_script_path"]).expanduser()
         venv_dir = (target_dir).resolve().parent / ".venv"
 
-        python_bin = venv_dir / (  # change this to only linux
-            "Scripts/python.exe" if os.name == "nt"
-            else "bin/python"
-        )
+        python_bin = venv_dir / "bin/python"
 
         main_py = target_dir / "main.py"
         if not main_py.is_absolute():
-            print(('not absolute'))
             main_py = (base_dir / main_py).resolve()
         if not main_py.exists():
-            print(f"{main_py} found")
-        if main_py.exists():
-            print(f"{main_py} found")
+            logging.error(f"{main_py} not found")
 
         # Create venv if needed
         if not venv_dir.exists():
-            print(f"Creating venv for {venv_dir}")
+            logging.info(f"Creating venv for {venv_dir}")
             venv.create(venv_dir, with_pip=True)
-            # Install dep if requirements.txt exists
+            # Install dependencies if requirements.txt exists
             req_file = target_dir / "requirements.txt"
-            if not req_file.exists():
-                print('Do not exist')
             if req_file.exists():
-                print("Installing dep.")
+                print("Installing library requirements.")
                 subprocess.run(
                     [
                         str(python_bin), "-m", "pip", "install", "-r",
@@ -123,7 +113,7 @@ def run_tpt_report_downloader(config: Dict):
                     check=True
                 )
 
-        print(f"Running: {main_py}")
+        logging.info(f"Runner activated at: {main_py}")
         result = subprocess.run(
             [str(python_bin), str(main_py)],
             check=True,
@@ -143,60 +133,44 @@ def run_tpt_report_downloader(config: Dict):
         logging.error(f"Unexpected TPT error: {str(e)}")
     except KeyboardInterrupt:
         logging.debug("Stopped runner")
-
-# another serious part of the code, might break into bits but lets see
-# how it goes
-# check if last possible report - should be generated by 5PM ET everyday
-# expected generated reports are generated 5PM ET, using timestamps gotten
-# from file
-
-
-def current_time_et() -> dt.datetime:
-    return dt.datetime.now(pytz.utc).astimezone(
-        pytz.timezone("US/Eastern")
-    )
+    return False
 
 
 def get_expected_report_date() -> dt.date:
-    """Calculate last possible report date (previous day 5PM ET cutoff)"""
-    now = current_time_et()
-    # now = now.replace(minute=0, second=0)
-    expected = (now - dt.timedelta(days=1)).date() if now.hour < 17 else now.date()
-    # return (now - dt.timedelta(days=1)).date() if now.hour < 17 else now.date()
-    print(f"last expected report date was at {expected} and today(ET) is {now}")
-    return expected
+    """
+    Calculate last possible report date (previous day 5PM ET cutoff)
+
+    Returns:
+        dt.date: The previous day date if current time is before 5pm ET,
+        otherwise returns today's date.
+    """
+    # Current time in ET
+    now = dt.datetime.now(pytz.utc).astimezone(
+        pytz.timezone("US/Eastern")
+    )
+    if now.hour < 17:
+        return (now - dt.timedelta(days=1)).date()
+    else:
+        return now.date()
 
 
 def check_last_report_exists(report_dir: Path) -> bool:
-    """Check if expected report exists in directory using mtime"""
-    # report_dir = config["report"]["paths"]
-    expected_date = get_expected_report_date()
-    expected_file = report_dir / f"{expected_date.strftime('%d-%m-%Y')}.csv"
-    print(f"last expected report date was at {expected_date}")
-
-    # if not expected_file.exists():
-    #     return False
-
-    # # Only verify mtime for today's xpected reports
-    # if expected_date == current_time_et():
-    #     # cut_off is 17, which is 5PM ET
-    #     cutoff_time = current_time_et().replace(
-    #         hour=17, minute=0, second=0, microsecond=0
-    #     )
-    #     file_mtime = dt.datetime.fromtimestamp(
-    #         expected_file.stat().st_mtime, pytz.timezone("US/Eastern")
-    #     )
-    #     return file_mtime >= cutoff_time
-
+    """Check if expected report exists in directory"""
+    expected_file = (
+        report_dir / f"{get_expected_report_date().strftime('%d-%m-%Y')}.csv"
+    )
     return expected_file.exists()
-    # return True
-    # pass
 
 
-# Main execution
-# def main() -> None:
-def main(config) -> None:
-    # config = read_config_file()
+def main(config: "dict[str, Any]") -> None:
+    """
+    Main function
+
+    Args:
+        config: Configuration gotten from config.yaml, uses dict struct.
+
+    Intended for periodic (cron) execution
+    """
     smtp_server = config["smtp_server"]
     sender = config["sender"]
     recipients = config["errors_recipients"]
@@ -206,71 +180,25 @@ def main(config) -> None:
     try:
         for report_dir in config['report_paths']:
             path = Path(report_dir)
-            if not check_last_report_exists(path):  # This is a bool, and it should have the 5PM ET
-                body = f"The last possible report in {path} is missing - triggering reprocessing"
+            if not check_last_report_exists(path):
+                body = (
+                    f"The last possible report in directory: {path}"
+                    " is missing and automated reprocessing will be triggered"
+                    " to attempt recovery"
+                )
                 logging.warning(body)
                 send_email(
                     smtp_server, sender, recipients, username, password,
                     subject, body
                 )
-                logging.warning("sent email. YEAAH")
-                if run_tpt_report_downloader(config):
-                    print("I ran in subprocess")
-                    break  # Stop after first reprocessing
+                logging.debug("Email sent.")
+                run_tpt_report_downloader(config)
+                return  # Stop after first reprocessing;
+                # next cron run will check it again
     except Exception as e:
         logging.critical(f"Execution failed: {str(e)}")
-        # might add send_email here but not important
 
 
 if __name__ == "__main__":
     config = load_config('config.yaml')
     main(config)
-    # Creating the root logger
-    # logger = get_logger()
-    # run_tpt_report_downloader(config)
-    # main(config)
-    # get_expected_report_date()
-    # check_last_report_exists(config['report_dir'])
-
-# def get_expected_report_date_comp(report_dir=None) -> dt.date:
-#     """Calculate last possible report date (previous day 5PM ET cutoff)"""
-#     now = dt.datetime.now(pytz.utc).astimezone(
-#         pytz.timezone("US/Eastern")
-#     )
-#     # now = now.replace(minute=0, second=0)
-#     # expected = (now - dt.timedelta(days=1)).date() if now.hour < 17 else now.date()
-#     # print(f"last expected report date was at {expected.ctime()} and today(ET) is {now.ctime()}")
-#     # return expected
-#     cutoff_hour = 17
-
-#     if report_dir and report_dir.exists():
-#         latest_file_date = None
-#         latest_mtime = None
-
-#         # Scan dir for matching files
-#         for file in report_dir.glob('*.csv'):
-#             try:
-#                 # Extract date from filename (dd-mm-YYYY)
-#                 # date_str = '_'.join(file.stem.split('_')[1:])
-#                 date_str = str(file.stem)
-#                 file_date = dt.datetime.strptime(date_str, '%d-%m-%Y').date()
-#             except (ValueError, IndexError):
-#                 print('An error occured')
-#                 continue
-
-#         # if valid file found, calculate expected date
-#         if latest_file_date:
-#             current_date = now.date()
-
-#             # Before cutoff: expect previous day
-#             if now.hour < cutoff_hour:
-#                 return latest_file_date - dt.timedelta(days=1)
-#             # After cutoff: expect today if file is current
-#             elif latest_file_date == current_date:
-#                 return current_date
-#             # Stale file: expect next day
-#             else:
-#                 return latest_file_date + dt.timedelta(days=1)
-
-#     # Fallback to time calculation
-#     return (now - dt.timedelta(days=1)).date() if now.hour < cutoff_hour else now.date()
