@@ -1,0 +1,12 @@
+aiosmtpd==1.4.6
+freezegun==1.5.1
+mypy==1.15.0
+mypy_extensions==1.1.0
+pytest==7.4.4
+pytest-mock==3.14.0
+pytz==2023.4
+PyYAML==6.0.1
+requests==2.31.0
+types-pytz==2025.2.0.20250326
+types-PyYAML==6.0.12.20250402
+typing_extensions==4.13.2
