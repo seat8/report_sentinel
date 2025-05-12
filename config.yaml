@@ -1,11 +1,6 @@
-#  Initial configuration
-number_of_retries: 10
-
-# download_location: list of paths
-# reports_locations:
+# number_of_retries: 10
 
 # path to TPT, should be defined for the script main.py to run
-# main_script_path: /home/joseph/TPTDailyReportDownloader
 main_script_path: ~/TPTDailyReportDownloader
 
 
@@ -14,21 +9,14 @@ report_paths: [
   "/path/to/reports1",
   "/path/to/reports2",
 ]
-# report paths and file_templates
-report:
-  paths: ["/path/to/reports1", "/path/to/reports2"]
-  filename_template: "{date}.csv"
 
 # Test if it would work with the test i have there
 report_dir: "~/0x02_dev_env/report_sentinel/tests/test_data/reports"
 
 # Email configs
-# send_the_email: True
-# smtp_server: ["smtp.test.com", 465]
+# smtp_server: ["smtp.test.com", 465]  # One or the other
 smtp_server: ["127.0.0.1", 1025]
 smtp_username: "user@test.com"
 smtp_password: "password"
 sender: "noreply@algosciences.com"
 recipients: ["person1@mail.com"]
-# intra_user_recipients: ["person1@mail.com", "person2@mail.com", "person3@mail.com"]
-errors_recipients: ["person1@mail.com"]
