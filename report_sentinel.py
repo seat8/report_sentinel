@@ -173,7 +173,7 @@ def main(config: "dict[str, Any]") -> None:
     """
     smtp_server = config["smtp_server"]
     sender = config["sender"]
-    recipients = config["errors_recipients"]
+    recipients = config["recipients"]
     username = config["smtp_username"]
     password = config["smtp_password"]
     subject = ("Last Possible Report Missing")
